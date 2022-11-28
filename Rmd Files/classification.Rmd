@@ -1,0 +1,164 @@
+---
+title: "Zadanie2 - klasyfikacja"
+author: "Marcin Świątkowski, Maciej Sikora"
+date: "01 06 2022"
+output: html_document
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Załadowanie danych
+
+```{r Załadowanie danych}
+Cars <- read.csv("Cars.csv")
+Cars_new <- subset(Cars, select = c(Location, 
+                                    Year, 
+                                    Kilometers_Driven, 
+                                    Fuel_Type, 
+                                    Transmission, 
+                                    Owner_Type, 
+                                    Mileage, 
+                                    Engine,  
+                                    Seats, 
+                                    Price))
+
+
+Cars <- Cars_new
+```
+
+## Zbiór danych
+
+Nasz zbiór danych dotyczy sprzedaży używanych samochodów. Dane zostały tak zmodyfikowane, że naszym targetem nie jest tym razem cena po prostu, ale klasy "powyżej pewnej wartości" i "poniżej pewnej wartości".
+
+```{r CarsDataset}
+names(Cars)
+dim(Cars)
+head(Cars)
+```
+
+```{r Dopasowanie modelu}
+fit_cars <- lm(Price ~ ., data=Cars)
+summary(fit_cars)
+```
+
+## Ocena poszczególnych predyktorów:
+
+Pod każym parametrem umieściliśmy t-value oraz Pr(\>\|t\|)
+
+-   Predyktory bardzo istotne (\*\*\*)**:**
+
+    -   **LocationBangalore**
+
+        -   3.725 0.000197 \*\*\*
+
+        -   wpływ dodatni, ale dość mały w porównaniu do innych
+            znaczących parametrów
+
+    -   **LocationCoimbatore**
+
+        -   3.950 7.91e-05 \*\*\*
+
+        -   wpływ dodatni, ale dość mały w porównaniu do innych
+            znaczących parametrów
+
+    -   **Year**
+
+        -   33.536 \< 2e-16 \*\*\*
+
+        -   wpływ dodatni i jest bardzo duży, istotność na poziomie
+            epsilon-maszynowego
+
+    -   **TransmissionManual**
+
+        -   -21.883 \< 2e-16 \*\*\*
+
+        -   wpływ ujemny i jest bardzo duży, istotność na poziomie
+            epsilon-maszynowego
+
+    -   **Mileage**
+
+        -   -5.753 9.19e-09 \*\*\*
+
+        -   wpływ ujemny, ale dość mały w porównaniu do innych
+            znaczących parametrów
+
+    -   **Engine**
+
+        -   42.623 \< 2e-16 \*\*\*
+
+        -   wpływ dodatni i jest największy spośród znaczących
+            parametrów, istotność na poziomie epsilon-maszynowego
+
+    -   **Seats**
+
+        -   -22.078 \< 2e-16 \*\*\*
+
+        -   wpływ ujemny i jest dość duży, istotność na poziomie
+            epsilon-maszynowego
+
+-   Predyktory potencjalnie istotne( \*\*, \*, . ):
+
+    -   LocationHyderabad \*\*
+
+        -   2.728 0.006388 \*\*
+
+        -   mały dodatni wpływ
+
+    -   Fuel_TypePetrol \*\*
+
+        -   -2.727 0.006413
+
+        -   mały ujemny
+
+    -   LocationKolkata .
+
+        -   -1.645 0.099939 .
+
+        -   mały ujemny, ale bardzo kiepska istotność statystyczna
+
+    -   Owner_TypeSecond .
+
+        -   -1.802 0.071634 .
+
+        -   mały ujemny, ale bardzo kiepska istotność statystyczna
+
+## Wykresy
+
+```{r normal dist}
+fit_cars.stdres = rstandard(fit_cars)
+
+qqnorm(fit_cars.stdres, 
+      ylab="Standardized Residuals",
+      xlab="Normal Scores")
+qqline(fit_cars.stdres)
+```
+
+Analizując powyższy wykres oraz dane z podsumowania modelu można
+wyciągnąć następujące wnioski:
+
+-   Mediana jest przesunięta o -0,5 w "lewo", w stronę wartości ujemnych
+
+-   Bardzo mocno rozstrzelone są ekstrema, maksimum jest czterokrotnie
+    razy większe niż wartość bezwzględna z minimum
+
+-   p-value statystyki jest bardzo małe, więc daje nam to solidne
+    podstawny do odrzucenia hipotezy zerowej, a innymi słowy model
+    regresji liniowej może dobrze pasować do danych
+
+-   Patrząc na wykres powyżej, widać, że na krańach popełniamy znaczny
+    błąd w dopasowaniu, ale większość przypadków znajduje się bardzo
+    blisko linii
+
+```{r lmDiagnosticPlots2}
+
+library(ggplot2)
+
+ggplot(data = fit_cars, aes(x = fit_cars$residuals)) +
+    geom_histogram(fill = 'steelblue', color = 'black') +
+    labs(title = 'Histogram of Residuals', x = 'Residuals', y = 'Frequency')
+```

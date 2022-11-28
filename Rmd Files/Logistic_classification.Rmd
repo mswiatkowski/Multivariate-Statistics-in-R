@@ -1,0 +1,122 @@
+---
+title: "Zadanie3 - selekcja cech i regularyzacja - klasyfikacja logistyczna"
+author: "Marcin Świątkowski, Maciej Sikora"
+date: "8 06 2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE)
+library(ISLR)
+library(splines)
+library(gam)
+```
+
+## Modele nieliniowe
+
+### Regresja logistyczna
+
+```{r załadowanie danych}
+Cars <- read.csv("Cars_class.csv")
+Cars_new <- subset(Cars, select = c(Location, 
+                                    Year, 
+                                    Kilometers_Driven, 
+                                    Fuel_Type, 
+                                    Transmission, 
+                                    Owner_Type, 
+                                    Mileage, 
+                                    Engine,  
+                                    Seats, 
+                                    Price, 
+                                    Price_Class))
+
+
+Cars <- Cars_new
+Cars <- Cars[complete.cases(Cars), ] # usunięcie NA
+Cars$Price_Class <- as.factor(Cars$Price_Class)
+```
+
+### Regresja logistyczna wielomianowa
+
+
+```{r logisticPoly}
+fit_log_poly <- glm(Price_Class ~ poly(Mileage, 6), data = Cars, family = binomial)
+summary(fit_log_poly)
+```
+# Wnioski z dopasowania
+Wielomian pierwszego stopnia jest oznaczony dużą istotnością w wyjaśnianiu danych, co sprawia, że wybór wielomianu pierwszego stopnia jako wielomian tłumaczący dane jest bardzo korzystne, gdyż zapewnia nam łatwą interpretację danych.
+
+
+
+Funkcja `predict.glm()` standardowo zwraca szanse logarytmiczne, co jest korzystne z punktu widzenia zobrazowania błędu standardowego. Musimy jednak otrzymane wartości przekształcić funkcją logistyczną.
+
+```{r logisticPolyPred}
+mileage_lims <- range(Cars$Mileage)
+mileage_grid <- seq(mileage_lims[1], mileage_lims[2])
+pred_log_poly <- predict(fit_log_poly, list(Mileage = mileage_grid), se.fit = TRUE)
+pred_probs <- plogis(pred_log_poly$fit)
+se_bands_logit <- cbind(pred_log_poly$fit + 2 * pred_log_poly$se.fit,
+                        pred_log_poly$fit - 2 * pred_log_poly$se.fit)
+se_bands <- plogis(se_bands_logit)
+plot(Cars$Mileage, Cars$Price_Class, xlim = mileage_lims, ylim = c(0, 1), 
+     col = "darkgrey", cex = 0.5, ylab = "P(Price_Class | Mileage)")
+lines(mileage_grid, pred_probs, col = "red", lwd = 2)
+matlines(mileage_grid, se_bands, lty = "dashed", col = "red")
+```
+# Regularyzacja metodą Lasso dla regresji logistycznej
+
+Przygotowanie:
+
+```{r przygotowanie do lasso}
+Cars <- na.omit(Cars)
+Cars$Price_Class <- as.factor(Cars$Price_Class)
+X <- model.matrix(Price_Class ~ . - Price, data=Cars)[, -1]
+y <- Cars$Price_Class
+set.seed(1)
+n <- nrow(X)
+train <- sample(n, n / 2)
+test <- -train
+```
+
+Dopasowanie lasso:
+
+```{r fit lasso}
+fit_lasso <- glmnet(X[train,], y[train], alpha=1, family = binomial)
+plot(fit_lasso, xvar="lambda")
+```
+
+Walidacja krzyżowa i liczenie estymaty MSE:
+
+```{r crossval i est. MSE}
+cv_out <- cv.glmnet(X[train,], y[train], alpha=1, family = binomial)
+plot(cv_out)
+cv_out$lambda.min
+pred_lasso <- predict(fit_lasso, s=cv_out$lambda.min, newx=X[test,])
+mean((pred_lasso - y[test])^2)
+```
+# Wnioski z walidacji krzyżowej
+
+Dzięki powyższemu wykresowi, wiemy, że najlepsze dopasowanie otrzymamy korzystając z 17 predyktorów, ale minimum funkcji GLM wyliczymy po uwzględnieniu tylko 11 pradyktorów.
+
+
+
+Estymaty współczynników dla optymalnego lambda:
+
+```{r estymaty opt lambda}
+fit_lasso_full <- glmnet(X, y, alpha=1, family = binomial)
+predict(fit_lasso_full, s=cv_out$lambda.min, type="coefficients")[1:20,]
+```
+# Istotne predyktory wskazane przez algorytm Lasso:
+
+LocationDelhi        
+LocationJaipur            
+LocationKochi
+LocationKolkata           
+LocationPune  
+LocationBangalore  
+LocationHyderabad 
+TransmissionManual 
+Kilometers_Driven
+Fuel_TypeDiesel             
+Owner_TypeThird 
+Year 

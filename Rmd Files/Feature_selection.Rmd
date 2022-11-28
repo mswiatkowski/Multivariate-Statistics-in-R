@@ -1,0 +1,238 @@
+---
+title: "Zadanie3 - selekcja cech i regularyzacja"
+author: "Marcin Świątkowski, Maciej Sikora"
+date: "8 06 2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(MASS)
+library(ISLR)
+library(class)
+library(boot)
+library(leaps)
+library(Rcpp)
+library(glmnet)
+```
+
+## Do zrobienia:
+
+1. Selekcja cech
+  - wskazać najistotniejsze predyktory
+  - porównać zastosowanie różnych kryteriów wyboru najlepszego podzbioru
+  - użyć metod krokowych i algorytmu przeglądającego wszystkie podzbiory
+
+2. Regularyzacja Lasso
+  - wskazać, które predyktory zostały wyselekcjonowane dla optymalnej wartości lambda
+
+## Załadowanie danych
+
+```{r załadowanie danych}
+Cars <- read.csv("Cars_class.csv")
+Cars_new <- subset(Cars, select = c(Location, 
+                                    Year, 
+                                    Kilometers_Driven, 
+                                    Fuel_Type, 
+                                    Transmission, 
+                                    Owner_Type, 
+                                    Mileage, 
+                                    Engine,  
+                                    Seats, 
+                                    Price, 
+                                    Price_Class))
+
+
+Cars <- Cars_new
+Cars <- Cars[complete.cases(Cars), ] # usunięcie NA
+```
+
+#
+#
+#
+#
+#
+# Selekcja cech dla __regresji liniowej__
+
+## wybór najlepszego podzbioru:
+
+```{r best subset}
+Cars_bs <- regsubsets(Price ~ . - Price_Class, data=Cars, nvmax=11)
+Cars_bs_sum <- summary(Cars_bs)
+Cars_bs_sum
+```
+
+```{r subset sum}
+Cars_bs_sum$cp
+```
+
+Najlepszy podzbiór według kryterium BIC:
+
+```{r best BIC}
+bic_min <- which.min(Cars_bs_sum$bic)
+bic_min
+Cars_bs_sum$bic[bic_min]
+```
+
+Wizualizacja:
+
+```{r BIC plot}
+plot(Cars_bs_sum$bic, xlab="Liczba zmiennych", ylab="BIC", col="green", type="b", pch=20)
+points(bic_min, Cars_bs_sum$bic[bic_min], col="red", pch=9)
+```
+
+Specjalny wykres:
+
+```{r specjalny BIC plot}
+plot(Cars_bs, scale="bic")
+```
+
+Estymaty współczynników dla optymalnego podzbioru:
+
+```{r estymaty coef}
+coef(Cars_bs, id=9)
+```
+
+## Selekcja krokowa do przodu i wstecz
+
+Przeprowadzenie selekcji krokowej:
+
+```{r selekcja krokowa}
+Cars_fwd <- regsubsets(Price ~ . - Price_Class, data=Cars, nvmax=11, method="forward")
+Cars_fwd_sum <- summary(Cars_fwd)
+Cars_fwd_sum
+Cars_back <- regsubsets(Price ~ . - Price_Class, data=Cars, nvmax=19, method="backward")
+Cars_back_sum <- summary(Cars_back)
+Cars_back_sum
+```
+
+## Wybór modelu przy pomocy metody zbioru walidacyjnego
+
+```{r tworzenie podzbioru}
+n <- nrow(Cars)
+train <- sample(c(TRUE, FALSE), n, replace=TRUE)
+test <- !train
+Cars_bs_v <- regsubsets(Price ~ . - Price_Class, data=Cars[train,], nvmax=19)
+```
+
+```{r funkcja predykcji}
+predict.regsubsets <- function(object, newdata, id, ...) {
+  model_formula <- as.formula(object$call[[2]])
+  mat <- model.matrix(model_formula, newdata)
+  coefs <- coef(object, id=id)
+  mat[, names(coefs)] %*% coefs
+}
+```
+
+Estymaty błędów:
+
+```{r estymaty błędów}
+prediction_error <- function(i, model, subset) {
+  pred <- predict(model, Cars[subset,], id=i)
+  mean((Cars$Price[subset] - pred)^2)
+}
+val_errors <- sapply(1:19, prediction_error, model=Cars_bs_v, subset=test)
+val_errors
+```
+
+## Wybór modelu przy pomocy k-krotnej walidacji krzyżowej
+
+Dopasowanie k:
+
+```{r dopasowanie k}
+k <- 10
+folds <- sample(1:k, n, replace=TRUE)
+val_err <- NULL
+for (j in 1:k) {
+  fit_bs <- regsubsets(Price ~ . - Price_Class, data=Cars[folds != j,], nvmax=10)
+  err <- sapply(1:10, prediction_error, model=fit_bs, subset=(folds == j))
+  val_err <- rbind(val_err, err)
+}
+```
+
+Estymata błędu oraz średnia błędów w każdej grupie:
+
+```{r estymata i średnia}
+cv_errors <- colMeans(val_err)
+cv_errors
+```
+
+# Regularyzacja metodą Lasso
+
+Przygotowanie:
+
+```{r przygotowanie do lasso}
+X <- model.matrix(Price ~ . - Price_Class, data=Cars)[, -1]
+y <- Cars$Price
+set.seed(1)
+n <- nrow(X)
+train <- sample(n, n / 2)
+test <- -train
+```
+
+
+Dopasowanie lasso:
+
+```{r fit lasso}
+fit_lasso <- glmnet(X[train,], y[train], alpha=1)
+plot(fit_lasso, xvar="lambda")
+```
+
+Walidacja krzyżowa i liczenie estymaty MSE:
+
+```{r crossval i est. MSE}
+cv_out <- cv.glmnet(X[train,], y[train], alpha=1)
+plot(cv_out)
+cv_out$lambda.min
+pred_lasso <- predict(fit_lasso, s=cv_out$lambda.min, newx=X[test,])
+mean((pred_lasso - y[test])^2)
+```
+
+Estymaty współczynników dla optymalnego lambda:
+
+```{r estymaty opt lambda}
+fit_lasso_full <- glmnet(X, y, alpha=1)
+predict(fit_lasso_full, s=cv_out$lambda.min, type="coefficients")[1:20,]
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

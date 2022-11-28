@@ -1,0 +1,87 @@
+---
+title: "zad3_walidacja krzyżowa i bootstrap"
+author: "Marcin Świątkowski, Maciej Sikora"
+date: "9 06 2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(MASS)
+library(ISLR)
+library(class)
+library(boot)
+library(leaps)
+```
+
+## Załadowanie danych
+
+```{r załadowanie danych}
+Cars <- read.csv("Cars_class.csv")
+Cars_new <- subset(Cars, select = c(Location, 
+                                    Year, 
+                                    Kilometers_Driven, 
+                                    Fuel_Type, 
+                                    Transmission, 
+                                    Owner_Type, 
+                                    Mileage, 
+                                    Engine,  
+                                    Seats, 
+                                    Price, 
+                                    Price_Class))
+
+
+Cars <- Cars_new
+Cars <- Cars[complete.cases(Cars), ] # usunięcie NA
+```
+
+
+## Walidacja krzyżowa dla __regresji liniowej__
+
+Tworzymy zbiór uczący:
+```{r zbiór treningowy}
+set.seed(1)
+n <- nrow(Cars)
+train <- sample(n, n / 2)
+```
+
+Dopasowujemy model liniowy na zbiorze uczącym i obliczamy MSE dla zbioru walidacyjnego:
+
+```{r fit i MSE}
+Cars_lm <- lm(Price ~ Engine, data=Cars, subset=train)
+validation_set <- Cars[-train,]
+mse <- mean((validation_set$Price - predict(Cars_lm, validation_set))^2)
+mse
+```
+
+Powtarzamy dla regresji wielomianowej wyższych stopni:
+
+```{r polynomial}
+for (i in 2:5) {
+  Cars_lm_poly <- lm(Price ~ poly(Engine, degree=i), data=Cars, subset=train)
+  print(mean((validation_set$Price - predict(Cars_lm_poly, validation_set))^2))
+}
+```
+
+Powtarzamy obliczenia dla innego zbioru walidacyjnego:
+
+```{r inny zbiór walidacyjny}
+set.seed(2)
+train <- sample(n, n / 2)
+validation_set <- Cars[-train,]
+degree_max <- 5
+compute_mse <- function(degree, train) {
+  Cars_lm <- lm(Price ~ poly(Engine, degree), data=Cars, subset=train)
+  validation_set <- Cars[-train,]
+  mean((validation_set$Price - predict(Cars_lm, validation_set))^2)
+}
+
+mse <- vapply(1:degree_max, compute_mse, FUN.VALUE=numeric(1), train=train)
+mse
+```
+
+Plotujemy wyniki:
+
+```{r plot MSE}
+plot(mse, xlab="Stopień wielomianu", ylab="MSE", type="b", pch=20, col="blue")
+```

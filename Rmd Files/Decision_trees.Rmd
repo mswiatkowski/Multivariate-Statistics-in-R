@@ -1,0 +1,393 @@
+---
+title: "Zadanie4 - Drzewa decyzyjne i modele pochodne"
+author: "Marcin Świątkowski, Maciej Sikora"
+date: "14 06 2022"
+output:
+  word_document: default
+  html_document: default
+  pdf_document: default
+editor_options:
+  markdown:
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE)
+library(ISLR)
+library(MASS)
+library(tree)
+#library(randomForest)
+library(gbm)
+```
+
+```{r}
+Cars <- read.csv("Cars_class.csv")
+Cars_new <- subset(Cars, select = c(Location, 
+                                    Year, 
+                                    Kilometers_Driven, 
+                                    Fuel_Type, 
+                                    Transmission, 
+                                    Owner_Type, 
+                                    Mileage, 
+                                    Engine,
+                                    Seats, 
+                                    Price, 
+                                    Price_Class))
+
+
+Cars <- Cars_new
+Cars <- Cars[complete.cases(Cars), ] # usunięcie NA
+Cars$Price_Class <- as.factor(Cars$Price_Class)
+contrasts(Cars$Price_Class)
+Cars <- na.omit(Cars)
+```
+
+## Drzewa decyzyjne
+
+### Drzewa klasyfikacyjne
+
+```{r classTree}
+price_class_tree <- tree(Price_Class ~ . -Price, data = Cars)
+summary(price_class_tree)
+```
+
+Przedstawienie graficzne dopasowanego modelu
+
+```{r plottree}
+plot(price_class_tree)
+text(price_class_tree, pretty = 0)
+```
+
+![](images/paste-CE14B87A.png)
+
+```{r print_tree}
+price_class_tree
+```
+
+Model drzewa jako najważniejsze predykatory wybrał kolejno "Engine"
+"Year" "Seats"
+
+```{r classtreeerror}
+set.seed(1)
+n <- nrow(Cars)
+train <- sample(n, n / 2)
+test <- -train
+price_class_tree <- tree(Price_Class ~ . - Price, data = Cars, subset = train)
+
+tree_class <- predict(price_class_tree, newdata = Cars[test,], type = "class")
+table(tree_class, Cars$Price_Class[test])
+mean(tree_class != Cars$Price_Class[test])
+```
+
+*Duże* drzewo $T_0$ dla zbioru uczącego `Cars[train,]`
+
+```{r bigclasstree}
+plot(price_class_tree)
+text(price_class_tree, pretty = 0)
+```
+
+![](images/paste-BD10AA71.png)
+
+```{r classtreecv}
+set.seed(1)
+price_high_cv <- cv.tree(price_class_tree, FUN = prune.misclass)
+price_high_cv
+plot(price_high_cv$size, price_high_cv$dev, type = "b")
+```
+
+Składowa `price_high_cv$dev` zawiera liczbę błędów CV. Przycinamy drzewo
+$T_0$ do poddrzewa z najmniejszym poziomem błędów CV.
+
+```{r class.tree.prune}
+size_opt <- price_high_cv$size[which.min(price_high_cv$dev)]
+price_high_pruned <- prune.misclass(price_class_tree, best = size_opt)
+plot(price_high_pruned)
+text(price_high_pruned, pretty = 0)
+```
+
+![](images/paste-B6C4F3AD.png)Testowy poziom błędów dla optymalnego
+poddrzewa.
+
+```{r class.pruned.error}
+pruned_class <- predict(price_high_pruned, newdata = Cars[test,], 
+                        type = "class")
+table(pruned_class, Cars$Price_Class[test])
+mean(pruned_class != Cars$Price_Class[test])
+```
+
+### Drzewa regresyjne
+
+```{r regressiontree}
+price_tree <- tree(Price ~ . -Price_Class, data = Cars)
+summary(price_tree)
+```
+
+```{r pricetreeshow}
+price_tree
+plot(price_tree)
+text(price_tree)
+```
+
+![](images/paste-05342C97.png)
+
+Istotne predyktory: "Engine" "Year" "Kilometers_Driven" "Seats"
+
+Metodą zbioru walidacyjnego szacujemy błąd testowy.
+
+```{r pricetreeerror}
+set.seed(1)
+n <- nrow(Cars)
+train <- sample(n, n / 2)
+test <- -train
+price_tree <- tree(Price ~ . -Price_Class, data = Cars, subset = train)
+price_pred <- predict(price_tree, newdata = Cars[test,])
+mean((price_pred - Cars$Price[test])^2)
+```
+
+Wyznaczamy optymalne poddrzewo metodą przycinania sterowanego
+złożonością.
+
+```{r price.tree.cv}
+price_cv <- cv.tree(price_tree)
+plot(price_cv$size, price_cv$dev, type = "b")
+```
+
+```{r price.prune}
+price_pruned <- prune.tree(price_tree, best = 4)
+plot(price_pruned)
+text(price_pruned)
+```
+
+## Bagging i lasy losowe
+
+### Bagging
+
+```{r pricebag}
+price_bag <- randomForest(Price ~ . -Price_Class, data = Cars, mtry = 13, importance = TRUE)
+price_bag
+```
+
+Wykres błędu OOB względem liczby drzew
+
+```{r pricebagoob}
+plot(price_bag, type = "l")
+```
+
+Wyznaczenie ważności predyktorów
+
+```{r priceimportance}
+importance(price_bag)
+```
+
+```{r priceimpplot}
+varImpPlot(price_bag)
+```
+
+Oszacowanie błędu testowego dla poprzednio wyznaczonego zbioru
+walidacyjnego.
+
+```{r pricebagvalid}
+set.seed(2)
+price_bag <- randomForest(Price ~ ., data = Cars, subset = train, mtry = 13,
+                         importance = TRUE)
+price_pred_bag <- predict(price_bag, newdata = Cars[test,])
+mean((price_pred_bag - Cars$Price[test])^2)
+```
+
+Powyższe dla mniejszej liczby hodowanych drzew
+
+```{r pricebagvalidsmall}
+set.seed(2)
+price_bag_s <- randomForest(Price ~ ., data = Cars, subset = train, mtry = 13,
+                         importance = TRUE, ntree = 25)
+price_price_bag_s <- predict(price_bag_s, newdata = Cars[test,])
+mean((price_price_bag_s - Cars$Price[test])^2)
+```
+
+### Lasy losowe
+
+Oszacowanie błędu testowego dla poprzednio wyznaczonego zbioru
+walidacyjnego.
+
+```{r pricerfvalid12}
+set.seed(2)
+price_rf <- randomForest(Price ~ ., data = Cars, subset = train,
+                         importance = TRUE)
+price_pred_rf <- predict(price_rf, newdata = Cars[test,])
+mean((price_pred_rf - Cars$Price[test])^2)
+```
+
+Powyższe dla ręcznie ustawionego parametru $m$ (czyli `mtry`).
+
+```{r price.rf.valid.mtry1}
+set.seed(2)
+price_rf <- randomForest(Price ~ ., data = Cars, subset = train, mtry = 6,
+                         importance = TRUE)
+price_pred_rf <- predict(price_rf, newdata = Cars[test,])
+mean((price_pred_rf - Cars$Price[test])^2)
+```
+
+### Poniżej lasy losowe dla regresji logistycznej
+
+```{r zera i jedynki 2}
+i = 1
+for (value in Cars$Price_Class) {
+  #print(value)
+  if (value == "High-priced") {
+    Cars$Price_Log[i] <- 0
+  }
+  if (value == "Low-priced") {
+    Cars$Price_Log[i] <- 1
+  }
+  i = i + 1
+}
+```
+
+```{r pricerfvalid42}
+set.seed(2)
+price_rf <- randomForest(Price_Log ~ . -Price -Price_Class, data = Cars, subset = train,
+                         importance = TRUE)
+price_pred_rf <- predict(price_rf, newdata = Cars[test,])
+mean((price_pred_rf - Cars$Price_Log[test])^2)
+```
+
+Powyższe dla ręcznie ustawionego parametru $m$ (czyli `mtry`).
+
+```{r price.rf.valid.mtry2}
+set.seed(2)
+price_rf <- randomForest(Price_Log ~ . -Price -Price_Class, data = Cars, subset = train, mtry = 6,
+                         importance = TRUE)
+price_pred_rf <- predict(price_rf, newdata = Cars[test,])
+mean((price_pred_rf - Cars$Price_Log[test])^2)
+```
+
+# Boosting
+
+```{r price boosting1}
+Cars$Location <- as.factor(Cars$Location)
+Cars$Fuel_Type <- as.factor(Cars$Fuel_Type)
+Cars$Transmission <- as.factor(Cars$Transmission)
+Cars$Owner_Type <- as.factor(Cars$Owner_Type)
+
+
+price_boost <- gbm(Price ~ . - Price_Class, data=Cars, distribution="gaussian", n.trees=5000, interaction.depth=4)
+price_boost
+summary(price_boost)
+```
+
+Wykresy częściowej zależności:
+
+```{r plot partial dependency1}
+#if (!require("devtools")) install.packages("devtools")
+#devtools::install_github("sjmgarnier/viridis")
+
+plot(price_boost, i.var = "Engine")
+plot(price_boost, i.var = "Year")
+plot(price_boost, i.var = c("Engine", "Year"))
+```
+
+Oszacowanie błędu testowego dla zbioru walidacyjnego:
+
+```{r test error1}
+set.seed(2)
+price_boost <- gbm(Price ~ . - Price_Class, data = Cars[train,], distribution = "gaussian",
+                  interaction.depth = 4, n.trees = 5000)
+price_pred_boost <- predict(price_boost, newdata = Cars[test,], n.trees = 5000)
+mean((price_pred_boost - Cars$Price[test])^2)
+```
+
+Dla lambda = 0.01
+
+```{r lambda11}
+set.seed(2)
+price_boost <- gbm(Price ~ . - Price_Class, data = Cars[train,], distribution = "gaussian",
+                  interaction.depth = 4, n.trees = 5000)
+price_pred_boost <- predict(price_boost, newdata = Cars[test,], n.trees = 5000, shrinkage = 0.01)
+mean((price_pred_boost - Cars$Price[test])^2)
+```
+
+Dla lambda = 1
+
+```{r lambda12}
+set.seed(2)
+price_boost <- gbm(Price ~ . - Price_Class, data = Cars[train,], distribution = "gaussian",
+                  interaction.depth = 4, n.trees = 5000)
+price_pred_boost <- predict(price_boost, newdata = Cars[test,], n.trees = 5000, shrinkage = 1)
+mean((price_pred_boost - Cars$Price[test])^2)
+```
+
+# Boosting dla logistycznej
+
+```{r price boosting2}
+Cars$Location <- as.factor(Cars$Location)
+Cars$Fuel_Type <- as.factor(Cars$Fuel_Type)
+Cars$Transmission <- as.factor(Cars$Transmission)
+Cars$Owner_Type <- as.factor(Cars$Owner_Type)
+
+price_class_boost <- gbm(Price_Log ~ . - Price - Price_Class, data=Cars, distribution="bernoulli", n.trees=5000, interaction.depth=4)
+price_class_boost
+summary(price_class_boost)
+```
+
+Wykresy częściowej zależności:
+
+```{r plot partial dependency2}
+#if (!require("devtools")) install.packages("devtools")
+#devtools::install_github("sjmgarnier/viridis")
+
+plot(price_class_boost, i.var = "Engine")
+plot(price_class_boost, i.var = "Year")
+plot(price_class_boost, i.var = c("Engine", "Year"))
+```
+
+Oszacowanie błędu testowego dla zbioru walidacyjnego:
+
+Nowy zbiór walidacyjny:
+
+```{r new validation11}
+set.seed(1)
+n <- nrow(Cars)
+train <- sample(n, n / 2)
+test <- -train
+```
+
+```{r test error11}
+set.seed(2)
+price_class_boost <- gbm(Price_Log ~ . - Price - Price_Class, data = Cars[train,], distribution = "bernoulli",
+                  interaction.depth = 4, n.trees = 5000)
+price_class_pred_boost <- predict(price_class_boost, newdata = Cars[test,], n.trees = 5000)
+mean((price_class_pred_boost - Cars$Price[test])^2)
+```
+
+Dla lambda = 0.01:
+
+```{r log lambda11}
+set.seed(2)
+price_class_boost <- gbm(Price_Log ~ . - Price - Price_Class, data = Cars[train,], distribution = "bernoulli",
+                  interaction.depth = 4, n.trees = 5000)
+price_class_pred_boost <- predict(price_class_boost, newdata = Cars[test,], n.trees = 5000, shrinkage = 0.01)
+mean((price_class_pred_boost - Cars$Price[test])^2)
+```
+
+Dla lambda = 1:
+
+```{r log lambda12}
+set.seed(2)
+price_class_boost <- gbm(Price_Log ~ . - Price - Price_Class, data = Cars[train,], distribution = "bernoulli",
+                  interaction.depth = 4, n.trees = 5000)
+price_class_pred_boost <- predict(price_class_boost, newdata = Cars[test,], n.trees = 5000, shrinkage = 1)
+mean((price_class_pred_boost - Cars$Price[test])^2)
+```
+
+# Wnioski
+
+W ciągu wszystkich eksperymentów predyktory "Engine" "Year" oraz "Seats"
+okazywały się najbardziej istotne.
+
+Modyfikowanie parametru labmda w Boostingu nie wprowadzało żadnej
+zmiany.
+
+Ręczne modyfikowanie mtry dawało gorsze wyniki niż wartości domyśle.
+
+Dane pokrywają się z intuicją odnośnie oszacowania ceny oraz klasy
+cenowej samochodu.
